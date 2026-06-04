@@ -1,2 +1,12 @@
-# budlab-teleprompter
-a teleprompter for online interview or speech
+# 透明提词器
+
+一个适合面试、自我介绍和视频会议使用的轻量网页提词器。
+
+## 本地使用
+
+直接打开 `index.html`。
+
+## 部署
+
+这是一个纯静态网站，无需构建命令。部署目录为项目根目录。
+

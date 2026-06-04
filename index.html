@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>透明提词器</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --text-size: 42px;
+      --line-height: 1.72;
+      --text-opacity: 0.92;
+      --panel-opacity: 0.72;
+      --text-width: 860px;
+      --safe-top: 90px;
+      --safe-bottom: 120px;
+      --accent: #7dd3fc;
+      --ink: rgba(255, 255, 255, var(--text-opacity));
+      --muted: rgba(255, 255, 255, 0.66);
+      --panel: rgba(10, 14, 18, var(--panel-opacity));
+      --panel-border: rgba(255, 255, 255, 0.14);
+      --shadow: rgba(0, 0, 0, 0.72);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: transparent;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    body {
+      color: var(--ink);
+      user-select: none;
+    }
+
+    body.guide::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(to bottom, rgba(0, 0, 0, 0.36), transparent 22%, transparent 78%, rgba(0, 0, 0, 0.34)),
+        radial-gradient(circle at 50% 42%, transparent 0 42%, rgba(0, 0, 0, 0.10) 72%);
+    }
+
+    .stage {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: stretch center;
+      padding: var(--safe-top) 32px var(--safe-bottom);
+      background: transparent;
+    }
+
+    .viewport {
+      width: min(var(--text-width), calc(100vw - 64px));
+      height: 100%;
+      overflow: hidden;
+      mask-image: linear-gradient(to bottom, transparent 0, black 12%, black 88%, transparent 100%);
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 12%, black 88%, transparent 100%);
+    }
+
+    .script {
+      min-height: 100%;
+      padding: 34vh 0 42vh;
+      font-size: var(--text-size);
+      line-height: var(--line-height);
+      font-weight: 640;
+      letter-spacing: 0;
+      text-align: center;
+      white-space: pre-wrap;
+      transform: translateY(0);
+      text-shadow: 0 2px 14px var(--shadow), 0 1px 3px rgba(0, 0, 0, 0.95);
+      will-change: transform;
+    }
+
+    body.mirror .script {
+      transform: scaleX(-1) translateY(0);
+    }
+
+    .read-line {
+      position: fixed;
+      left: 50%;
+      top: 46%;
+      width: min(720px, calc(100vw - 72px));
+      height: 2px;
+      transform: translateX(-50%);
+      background: linear-gradient(to right, transparent, rgba(125, 211, 252, 0.62), transparent);
+      box-shadow: 0 0 16px rgba(125, 211, 252, 0.38);
+      opacity: 0.82;
+      pointer-events: none;
+    }
+
+    .panel {
+      position: fixed;
+      left: 50%;
+      bottom: 16px;
+      width: min(980px, calc(100vw - 24px));
+      transform: translateX(-50%);
+      color: #f7fbff;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      box-shadow: 0 14px 42px rgba(0, 0, 0, 0.24);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    body.clean .panel {
+      opacity: 0;
+      transform: translate(-50%, 12px);
+      pointer-events: none;
+    }
+
+    .panel-inner {
+      display: grid;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .topbar,
+    .controls,
+    .sliders {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .topbar {
+      justify-content: space-between;
+    }
+
+    .brand {
+      min-width: 0;
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    button,
+    label.toggle {
+      height: 34px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 7px;
+      padding: 0 11px;
+      color: #f8fbff;
+      background: rgba(255, 255, 255, 0.08);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover,
+    label.toggle:hover {
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    button.primary {
+      color: #061116;
+      background: var(--accent);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    label.toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+
+    .progress-row {
+      display: grid;
+      grid-template-columns: 54px minmax(180px, 1fr) 54px;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress-row span:last-child {
+      text-align: right;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .sliders {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(110px, 1fr));
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      min-width: 0;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 170px;
+      max-height: 34vh;
+      resize: vertical;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      padding: 12px 13px;
+      color: #f8fbff;
+      background: rgba(0, 0, 0, 0.28);
+      outline: none;
+      font: 15px/1.58 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+      user-select: text;
+    }
+
+    textarea:focus {
+      border-color: rgba(125, 211, 252, 0.72);
+      box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.14);
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .hint {
+      color: rgba(255, 255, 255, 0.56);
+      font-size: 12px;
+    }
+
+    kbd {
+      display: inline-block;
+      min-width: 18px;
+      padding: 2px 5px;
+      border-radius: 5px;
+      color: rgba(255, 255, 255, 0.82);
+      background: rgba(255, 255, 255, 0.11);
+      font: 11px/1.1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      text-align: center;
+    }
+
+    @media (max-width: 720px) {
+      :root {
+        --text-size: 30px;
+        --safe-top: 72px;
+      }
+
+      .stage {
+        padding-inline: 18px;
+      }
+
+      .viewport {
+        width: calc(100vw - 36px);
+      }
+
+      .topbar,
+      .controls {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .actions {
+        justify-content: stretch;
+      }
+
+      button,
+      label.toggle {
+        flex: 1 1 auto;
+      }
+
+      .sliders {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body class="guide">
+  <main class="stage" aria-label="提词显示区">
+    <div class="viewport">
+      <div id="script" class="script"></div>
+    </div>
+  </main>
+  <div id="readLine" class="read-line"></div>
+
+  <section class="panel" aria-label="提词控制面板">
+    <div class="panel-inner">
+      <div class="topbar">
+        <div class="brand">透明提词器</div>
+        <div class="actions">
+          <button id="editBtn" type="button">编辑</button>
+          <button id="resetBtn" type="button">回到开头</button>
+          <button id="cleanBtn" type="button">演讲模式</button>
+          <button id="playBtn" class="primary" type="button">开始</button>
+        </div>
+      </div>
+
+      <div class="progress-row">
+        <span id="currentTime">00:00</span>
+        <input id="progress" type="range" min="0" max="1000" value="0" aria-label="滚动进度">
+        <span id="percentText">0%</span>
+      </div>
+
+      <div class="sliders">
+        <label class="field">速度
+          <input id="speed" type="range" min="6" max="120" value="34">
+        </label>
+        <label class="field">字号
+          <input id="fontSize" type="range" min="22" max="76" value="42">
+        </label>
+        <label class="field">行距
+          <input id="lineHeight" type="range" min="120" max="220" value="172">
+        </label>
+        <label class="field">文字透明
+          <input id="textOpacity" type="range" min="35" max="100" value="92">
+        </label>
+        <label class="field">宽度
+          <input id="textWidth" type="range" min="420" max="1280" value="860">
+        </label>
+      </div>
+
+      <div class="controls">
+        <label class="toggle"><input id="mirror" type="checkbox">镜像</label>
+        <label class="toggle"><input id="guide" type="checkbox" checked>阅读线</label>
+        <label class="toggle"><input id="autoHide" type="checkbox" checked>开始后隐藏面板</label>
+        <span class="hint">快捷键：<kbd>空格</kbd>开始/暂停 <kbd>R</kbd>回到开头 <kbd>E</kbd>编辑 <kbd>H</kbd>隐藏 <kbd>↑</kbd><kbd>↓</kbd>调速</span>
+      </div>
+
+      <div id="editorWrap">
+        <textarea id="editor" spellcheck="false" aria-label="提词内容"></textarea>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const defaultText = `大家好，我是[你的名字]。
+
+很高兴有机会参加今天的面试。
+
+我过去主要关注[你的方向/岗位]，做过[项目或经历一]、[项目或经历二]，比较擅长把复杂问题拆开，快速找到可以落地的方案。
+
+在上一段经历里，我负责[你的职责]，其中一个比较有代表性的成果是[具体成果]。这个过程中，我不仅提升了[能力一]，也更加重视沟通、节奏管理和结果交付。
+
+我对贵公司的[业务/产品/团队方向]很感兴趣，也希望能把自己的经验用在更有挑战的问题上。
+
+以上就是我的简单介绍，谢谢。`;
+
+    const els = {
+      script: document.getElementById("script"),
+      editor: document.getElementById("editor"),
+      editorWrap: document.getElementById("editorWrap"),
+      playBtn: document.getElementById("playBtn"),
+      editBtn: document.getElementById("editBtn"),
+      resetBtn: document.getElementById("resetBtn"),
+      cleanBtn: document.getElementById("cleanBtn"),
+      progress: document.getElementById("progress"),
+      speed: document.getElementById("speed"),
+      fontSize: document.getElementById("fontSize"),
+      lineHeight: document.getElementById("lineHeight"),
+      textOpacity: document.getElementById("textOpacity"),
+      textWidth: document.getElementById("textWidth"),
+      mirror: document.getElementById("mirror"),
+      guide: document.getElementById("guide"),
+      autoHide: document.getElementById("autoHide"),
+      currentTime: document.getElementById("currentTime"),
+      percentText: document.getElementById("percentText"),
+      readLine: document.getElementById("readLine")
+    };
+
+    const storageKey = "transparent-teleprompter-state";
+    let rafId = null;
+    let lastTs = 0;
+    let position = 0;
+    let playing = false;
+    let editing = true;
+
+    function loadState() {
+      try {
+        return JSON.parse(localStorage.getItem(storageKey)) || {};
+      } catch {
+        return {};
+      }
+    }
+
+    function saveState() {
+      const state = {
+        text: els.editor.value,
+        speed: els.speed.value,
+        fontSize: els.fontSize.value,
+        lineHeight: els.lineHeight.value,
+        textOpacity: els.textOpacity.value,
+        textWidth: els.textWidth.value,
+        mirror: els.mirror.checked,
+        guide: els.guide.checked,
+        autoHide: els.autoHide.checked
+      };
+      localStorage.setItem(storageKey, JSON.stringify(state));
+    }
+
+    function maxScroll() {
+      const stageHeight = document.querySelector(".viewport").clientHeight;
+      return Math.max(0, els.script.scrollHeight - stageHeight);
+    }
+
+    function clampPosition() {
+      position = Math.min(Math.max(0, position), maxScroll());
+    }
+
+    function formatTime(seconds) {
+      const mins = Math.floor(seconds / 60).toString().padStart(2, "0");
+      const secs = Math.floor(seconds % 60).toString().padStart(2, "0");
+      return `${mins}:${secs}`;
+    }
+
+    function renderPosition() {
+      clampPosition();
+      const mirrorPrefix = document.body.classList.contains("mirror") ? "scaleX(-1) " : "";
+      els.script.style.transform = `${mirrorPrefix}translateY(${-position}px)`;
+      const total = maxScroll();
+      const pct = total ? position / total : 0;
+      els.progress.value = Math.round(pct * 1000);
+      els.percentText.textContent = `${Math.round(pct * 100)}%`;
+      els.currentTime.textContent = formatTime(position / Number(els.speed.value || 1));
+    }
+
+    function applySettings() {
+      document.documentElement.style.setProperty("--text-size", `${els.fontSize.value}px`);
+      document.documentElement.style.setProperty("--line-height", `${Number(els.lineHeight.value) / 100}`);
+      document.documentElement.style.setProperty("--text-opacity", `${Number(els.textOpacity.value) / 100}`);
+      document.documentElement.style.setProperty("--text-width", `${els.textWidth.value}px`);
+      document.body.classList.toggle("mirror", els.mirror.checked);
+      els.readLine.hidden = !els.guide.checked;
+      renderPosition();
+      saveState();
+    }
+
+    function setText(text) {
+      els.script.textContent = text.trim() || "在编辑框里写下你的提词内容。";
+      requestAnimationFrame(renderPosition);
+    }
+
+    function setPlaying(next) {
+      playing = next;
+      els.playBtn.textContent = playing ? "暂停" : "开始";
+      if (playing) {
+        lastTs = performance.now();
+        rafId = requestAnimationFrame(tick);
+        if (els.autoHide.checked) setClean(true);
+      } else if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+    }
+
+    function setEditing(next) {
+      editing = next;
+      els.editorWrap.classList.toggle("hidden", !editing);
+      els.editBtn.textContent = editing ? "收起编辑" : "编辑";
+      if (editing) setClean(false);
+    }
+
+    function setClean(next) {
+      document.body.classList.toggle("clean", next);
+      els.cleanBtn.textContent = next ? "显示面板" : "演讲模式";
+    }
+
+    function tick(ts) {
+      if (!playing) return;
+      const delta = Math.min(80, ts - lastTs) / 1000;
+      lastTs = ts;
+      position += Number(els.speed.value) * delta;
+      if (position >= maxScroll()) {
+        position = maxScroll();
+        setPlaying(false);
+      }
+      renderPosition();
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function reset() {
+      position = 0;
+      renderPosition();
+    }
+
+    function init() {
+      const state = loadState();
+      els.editor.value = state.text || defaultText;
+      els.speed.value = state.speed || 34;
+      els.fontSize.value = state.fontSize || 42;
+      els.lineHeight.value = state.lineHeight || 172;
+      els.textOpacity.value = state.textOpacity || 92;
+      els.textWidth.value = state.textWidth || 860;
+      els.mirror.checked = Boolean(state.mirror);
+      els.guide.checked = state.guide !== false;
+      els.autoHide.checked = state.autoHide !== false;
+      setText(els.editor.value);
+      applySettings();
+    }
+
+    els.editor.addEventListener("input", () => {
+      setText(els.editor.value);
+      saveState();
+    });
+
+    [els.speed, els.fontSize, els.lineHeight, els.textOpacity, els.textWidth].forEach((input) => {
+      input.addEventListener("input", applySettings);
+    });
+
+    [els.mirror, els.guide, els.autoHide].forEach((input) => {
+      input.addEventListener("change", applySettings);
+    });
+
+    els.progress.addEventListener("input", () => {
+      position = maxScroll() * (Number(els.progress.value) / 1000);
+      renderPosition();
+    });
+
+    els.playBtn.addEventListener("click", () => setPlaying(!playing));
+    els.editBtn.addEventListener("click", () => setEditing(!editing));
+    els.resetBtn.addEventListener("click", reset);
+    els.cleanBtn.addEventListener("click", () => setClean(!document.body.classList.contains("clean")));
+
+    document.addEventListener("keydown", (event) => {
+      if (event.target === els.editor && event.key !== "Escape") return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        setPlaying(!playing);
+      } else if (event.key.toLowerCase() === "e") {
+        setEditing(!editing);
+      } else if (event.key.toLowerCase() === "h" || event.key === "Escape") {
+        setClean(!document.body.classList.contains("clean"));
+      } else if (event.key === "ArrowUp") {
+        els.speed.value = Math.max(Number(els.speed.min), Number(els.speed.value) - 4);
+        applySettings();
+      } else if (event.key === "ArrowDown") {
+        els.speed.value = Math.min(Number(els.speed.max), Number(els.speed.value) + 4);
+        applySettings();
+      } else if (event.key === "Home" || event.key.toLowerCase() === "r") {
+        reset();
+      }
+    });
+
+    window.addEventListener("resize", renderPosition);
+    init();
+  </script>
+</body>
+</html>
