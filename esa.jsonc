@@ -1,5 +1,9 @@
 {
+  "name": "budlab-teleprompter",
   "installCommand": "",
   "buildCommand": "",
-  "outputDirectory": "./"
+  "assets": {
+    "directory": "./",
+    "notFoundStrategy": "singlePageApplication"
+  }
 }
