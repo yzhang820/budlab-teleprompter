@@ -3,19 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>透明提词器</title>
+  <title>滚动提词器</title>
   <style>
     :root {
       color-scheme: dark;
       --text-size: 42px;
       --line-height: 1.72;
-      --text-opacity: 0.92;
       --panel-opacity: 0.72;
       --text-width: 860px;
       --safe-top: 90px;
       --safe-bottom: 120px;
       --accent: #7dd3fc;
-      --ink: rgba(255, 255, 255, var(--text-opacity));
+      --ink: rgba(255, 255, 255, 0.92);
       --muted: rgba(255, 255, 255, 0.66);
       --panel: rgba(10, 14, 18, var(--panel-opacity));
       --panel-border: rgba(255, 255, 255, 0.14);
@@ -121,6 +120,38 @@
       pointer-events: none;
     }
 
+    .clean-hint {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      max-width: min(420px, calc(100vw - 32px));
+      padding: 9px 10px 9px 13px;
+      color: rgba(255, 255, 255, 0.78);
+      background: rgba(10, 14, 18, 0.66);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      font-size: 12px;
+      line-height: 1.35;
+      z-index: 2;
+    }
+
+    body.clean .clean-hint {
+      display: flex;
+    }
+
+    .clean-hint button {
+      flex: 0 0 auto;
+      height: 32px;
+      color: #061116;
+      background: var(--accent);
+    }
+
     .panel-inner {
       display: grid;
       gap: 12px;
@@ -210,7 +241,7 @@
 
     .sliders {
       display: grid;
-      grid-template-columns: repeat(5, minmax(110px, 1fr));
+      grid-template-columns: repeat(4, minmax(110px, 1fr));
     }
 
     .field {
@@ -293,6 +324,13 @@
       .sliders {
         grid-template-columns: 1fr 1fr;
       }
+
+      .clean-hint {
+        right: 12px;
+        bottom: 12px;
+        left: 12px;
+        justify-content: space-between;
+      }
     }
   </style>
 </head>
@@ -307,7 +345,7 @@
   <section class="panel" aria-label="提词控制面板">
     <div class="panel-inner">
       <div class="topbar">
-        <div class="brand">透明提词器</div>
+        <div class="brand">滚动提词器</div>
         <div class="actions">
           <button id="editBtn" type="button">编辑</button>
           <button id="resetBtn" type="button">回到开头</button>
@@ -332,9 +370,6 @@
         <label class="field">行距
           <input id="lineHeight" type="range" min="120" max="220" value="172">
         </label>
-        <label class="field">文字透明
-          <input id="textOpacity" type="range" min="35" max="100" value="92">
-        </label>
         <label class="field">宽度
           <input id="textWidth" type="range" min="420" max="1280" value="860">
         </label>
@@ -352,6 +387,11 @@
       </div>
     </div>
   </section>
+
+  <div id="cleanHint" class="clean-hint" aria-live="polite">
+    <span>演讲模式中，按 <kbd>H</kbd> 或 <kbd>Esc</kbd> 返回设置</span>
+    <button id="exitCleanBtn" type="button">返回设置</button>
+  </div>
 
   <script>
     const defaultText = `大家好，我是[你的名字]。
@@ -378,14 +418,14 @@
       speed: document.getElementById("speed"),
       fontSize: document.getElementById("fontSize"),
       lineHeight: document.getElementById("lineHeight"),
-      textOpacity: document.getElementById("textOpacity"),
       textWidth: document.getElementById("textWidth"),
       mirror: document.getElementById("mirror"),
       guide: document.getElementById("guide"),
       autoHide: document.getElementById("autoHide"),
       currentTime: document.getElementById("currentTime"),
       percentText: document.getElementById("percentText"),
-      readLine: document.getElementById("readLine")
+      readLine: document.getElementById("readLine"),
+      exitCleanBtn: document.getElementById("exitCleanBtn")
     };
 
     const storageKey = "transparent-teleprompter-state";
@@ -409,7 +449,6 @@
         speed: els.speed.value,
         fontSize: els.fontSize.value,
         lineHeight: els.lineHeight.value,
-        textOpacity: els.textOpacity.value,
         textWidth: els.textWidth.value,
         mirror: els.mirror.checked,
         guide: els.guide.checked,
@@ -447,7 +486,6 @@
     function applySettings() {
       document.documentElement.style.setProperty("--text-size", `${els.fontSize.value}px`);
       document.documentElement.style.setProperty("--line-height", `${Number(els.lineHeight.value) / 100}`);
-      document.documentElement.style.setProperty("--text-opacity", `${Number(els.textOpacity.value) / 100}`);
       document.documentElement.style.setProperty("--text-width", `${els.textWidth.value}px`);
       document.body.classList.toggle("mirror", els.mirror.checked);
       els.readLine.hidden = !els.guide.checked;
@@ -509,7 +547,6 @@
       els.speed.value = state.speed || 34;
       els.fontSize.value = state.fontSize || 42;
       els.lineHeight.value = state.lineHeight || 172;
-      els.textOpacity.value = state.textOpacity || 92;
       els.textWidth.value = state.textWidth || 860;
       els.mirror.checked = Boolean(state.mirror);
       els.guide.checked = state.guide !== false;
@@ -523,7 +560,7 @@
       saveState();
     });
 
-    [els.speed, els.fontSize, els.lineHeight, els.textOpacity, els.textWidth].forEach((input) => {
+    [els.speed, els.fontSize, els.lineHeight, els.textWidth].forEach((input) => {
       input.addEventListener("input", applySettings);
     });
 
@@ -540,6 +577,7 @@
     els.editBtn.addEventListener("click", () => setEditing(!editing));
     els.resetBtn.addEventListener("click", reset);
     els.cleanBtn.addEventListener("click", () => setClean(!document.body.classList.contains("clean")));
+    els.exitCleanBtn.addEventListener("click", () => setClean(false));
 
     document.addEventListener("keydown", (event) => {
       if (event.target === els.editor && event.key !== "Escape") return;
